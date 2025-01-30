@@ -14,6 +14,8 @@ from src.services.screenshot_service import ScreenshotService
 from src.utils.text_utils import TextUtils
 import socket
 from functools import partial
+from src.services.action_executor import ActionExecutor
+from src.utils.history_manager import HistoryManager
 
 class LoadingAnimation:
     def __init__(self, label: ttk.Label):
@@ -170,6 +172,8 @@ class OllamaGUI:
         # Add service initialization
         self.groq_service = GroqService()
         self.screenshot_service = ScreenshotService()
+        self.action_executor = ActionExecutor()
+        self.is_executing = False
         
         # Create event loop
         self.loop = asyncio.get_event_loop()
@@ -187,9 +191,13 @@ class OllamaGUI:
         
         # Add cancel flag
         self.is_cancelled = False
+        
+        # Add history manager
+        self.history_manager = HistoryManager()
     
     def cleanup(self) -> None:
         """Clean up resources before closing."""
+        self.history_manager.clear()
         self.loading_animation.stop()
         self.thread_pool.shutdown(wait=False)
         self.root.destroy()
@@ -218,6 +226,8 @@ class OllamaGUI:
         if not user_input:
             return
         
+        self.history_manager.set_objective(user_input)  # Store objective
+        
         self.last_input_time = current_time
         self.input_field.delete(0, tk.END)
         self.actions_display.insert(tk.END, f"You: {user_input}\n\n")
@@ -244,59 +254,89 @@ class OllamaGUI:
     
     async def process_input(self, user_input: str) -> None:
         retries = 0
-        while retries < self.max_retries and not self.is_cancelled:
+        self.is_executing = True
+        
+        while retries < self.max_retries and not self.is_cancelled and self.is_executing:
             try:
-                # Vision analysis stays the same for both modes
+                # Take screenshot and analyze
                 screenshot = self.screenshot_service.capture_and_encode()
                 vision_context = TextUtils.read_context("context.txt")
                 
-                vision_future = self.loop.run_in_executor(
-                    None,
-                    partial(self.groq_service.analyze_image, screenshot, vision_context)
-                )
-                
-                try:
-                    vision_response = await asyncio.wait_for(vision_future, timeout=30)
-                except asyncio.TimeoutError:
-                    raise Exception("Vision analysis timed out")
-                
+                # Get vision analysis
+                vision_response = await self.get_vision_analysis(screenshot, vision_context)
                 self.vision_display.insert(tk.END, f"Vision Analysis:\n{vision_response}\n\n")
                 self.vision_display.see(tk.END)
                 
-                # Command generation based on model selection
-                context2 = TextUtils.read_context("context2.txt")
-                combined_prompt = f"{context2}\n\nUser Input: {user_input}\n\nVision Analysis: {vision_response}"
+                # Generate and execute command
+                command_response = await self.generate_command(
+                    user_input,
+                    vision_response,
+                    self.history_manager.format_history()
+                )
                 
-                if self.model_type_var.get() == "groq":
-                    # Use Groq API for command generation
-                    command_future = self.loop.run_in_executor(
-                        None,
-                        partial(self.groq_service.generate_command, combined_prompt)
-                    )
-                    command_response = await asyncio.wait_for(command_future, timeout=30)
-                    self.queue_update('action', command_response)
-                else:
-                    # Use local Ollama for command generation
-                    await self.loop.run_in_executor(None, self.get_response, combined_prompt)
-                
-                break  # Success, exit retry loop
-                
-            except (ConnectionResetError, socket.error, requests.exceptions.RequestException) as e:
-                retries += 1
-                if retries >= self.max_retries:
-                    self.queue_update('error', f"Connection failed after {retries} attempts: {str(e)}\n\n")
-                    break
+                if command_response:
+                    # Parse and execute command
+                    reason, action = self.action_executor.parse_yaml_response(command_response)
                     
-                self.queue_update('error', f"Connection attempt {retries} failed, retrying in {self.retry_delay} seconds...\n")
-                await asyncio.sleep(self.retry_delay)
+                    # Display reason and action
+                    self.queue_update('action', f"Reason: {reason}\nExecuting: {action}\n")
+                    
+                    if action.lower() == 'done':
+                        self.is_executing = False
+                        self.queue_update('action', "Task completed.\n\n")
+                        break
+                    
+                    # Execute command and wait
+                    success = self.action_executor.execute_command(action)
+                    self.history_manager.add_command(reason, action, success)
+                    
+                    if success:
+                        await asyncio.sleep(3)  # Wait for UI update
+                        continue
+                    
+                break  # Exit if command execution fails
                 
             except Exception as e:
                 if self.is_cancelled:
                     break
                 self.queue_update('error', f"Error: {str(e)}\n\n")
-                break
+                retries += 1
+                if retries >= self.max_retries:
+                    break
+                await asyncio.sleep(self.retry_delay)
         
+        self.is_executing = False
         self.root.after(0, self._reset_ui_state)
+    
+    async def get_vision_analysis(self, screenshot: str, context: str) -> str:
+        """Get vision analysis with timeout."""
+        vision_future = self.loop.run_in_executor(
+            None,
+            partial(self.groq_service.analyze_image, screenshot, context)
+        )
+        return await asyncio.wait_for(vision_future, timeout=30)
+    
+    async def generate_command(self, user_input: str, vision_response: str, history: str) -> Optional[str]:
+        """Generate next command based on vision analysis and history."""
+        context2 = TextUtils.read_context("context2.txt")
+        combined_prompt = (
+            f"{context2}\n\n"
+            f"Task Objective: {user_input}\n\n"
+            f"Command History:\n{history}\n\n"
+            f"Current Vision Analysis:\n{vision_response}\n\n"
+            f"Based on the history above and current vision analysis, "
+            f"determine the next action to progress towards the objective. "
+            f"Ensure you don't repeat previous actions unless necessary."
+        )
+        
+        if self.model_type_var.get() == "groq":
+            command_future = self.loop.run_in_executor(
+                None,
+                partial(self.groq_service.generate_command, combined_prompt)
+            )
+            return await asyncio.wait_for(command_future, timeout=30)
+        else:
+            return await self.loop.run_in_executor(None, self.get_response, combined_prompt)
     
     def get_response(self, prompt: str) -> None:
         try:
