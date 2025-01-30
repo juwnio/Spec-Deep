@@ -1,5 +1,6 @@
 GROQ_API_KEY = "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"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-GROQ_MODEL = "llama-3.2-90b-vision-preview"
+GROQ_VISION_MODEL = "llama-3.2-90b-vision-preview"
+GROQ_COMMAND_MODEL = "llama-3.3-70b-specdec"
 OLLAMA_MODEL = "deepseek-r1:1.5b"
 OLLAMA_HOST = "http://localhost:11434"

@@ -62,6 +62,27 @@ class OllamaGUI:
         self.status_label = ttk.Label(self.model_frame, text="⚫ Disconnected")
         self.status_label.pack(side=tk.RIGHT, padx=5)
         
+        # Add model type selection
+        self.model_type_var = tk.StringVar(value="local")
+        model_type_frame = ttk.Frame(self.model_frame)
+        model_type_frame.pack(side=tk.RIGHT, padx=5)
+        
+        ttk.Radiobutton(
+            model_type_frame,
+            text="Local",
+            variable=self.model_type_var,
+            value="local",
+            command=self.toggle_interface
+        ).pack(side=tk.LEFT)
+        
+        ttk.Radiobutton(
+            model_type_frame,
+            text="Groq",
+            variable=self.model_type_var,
+            value="groq",
+            command=self.toggle_interface
+        ).pack(side=tk.LEFT)
+
         # Create display frames
         display_frame = ttk.Frame(root)
         display_frame.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
@@ -212,18 +233,26 @@ class OllamaGUI:
         self.send_button.configure(state="disabled")
         self.loop.create_task(self.process_input(user_input))
     
+    def toggle_interface(self) -> None:
+        """Toggle interface based on model selection."""
+        if self.model_type_var.get() == "groq":
+            self.thoughts_display.grid_remove()
+            self.actions_display.configure(height=30)  # Make actions panel taller
+        else:
+            self.thoughts_display.grid()
+            self.actions_display.configure(height=20)
+    
     async def process_input(self, user_input: str) -> None:
         retries = 0
         while retries < self.max_retries and not self.is_cancelled:
             try:
-                # Take screenshot and analyze
+                # Vision analysis stays the same for both modes
                 screenshot = self.screenshot_service.capture_and_encode()
-                context = TextUtils.read_context("context.txt")
+                vision_context = TextUtils.read_context("context.txt")
                 
-                # Get vision analysis with timeout
                 vision_future = self.loop.run_in_executor(
                     None,
-                    partial(self.groq_service.analyze_image, screenshot, context)
+                    partial(self.groq_service.analyze_image, screenshot, vision_context)
                 )
                 
                 try:
@@ -234,12 +263,22 @@ class OllamaGUI:
                 self.vision_display.insert(tk.END, f"Vision Analysis:\n{vision_response}\n\n")
                 self.vision_display.see(tk.END)
                 
-                # Combine with user input and context2
+                # Command generation based on model selection
                 context2 = TextUtils.read_context("context2.txt")
                 combined_prompt = f"{context2}\n\nUser Input: {user_input}\n\nVision Analysis: {vision_response}"
                 
-                # Send to Ollama
-                await self.loop.run_in_executor(None, self.get_response, combined_prompt)
+                if self.model_type_var.get() == "groq":
+                    # Use Groq API for command generation
+                    command_future = self.loop.run_in_executor(
+                        None,
+                        partial(self.groq_service.generate_command, combined_prompt)
+                    )
+                    command_response = await asyncio.wait_for(command_future, timeout=30)
+                    self.queue_update('action', command_response)
+                else:
+                    # Use local Ollama for command generation
+                    await self.loop.run_in_executor(None, self.get_response, combined_prompt)
+                
                 break  # Success, exit retry loop
                 
             except (ConnectionResetError, socket.error, requests.exceptions.RequestException) as e:

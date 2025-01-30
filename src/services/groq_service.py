@@ -3,7 +3,12 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from typing import Dict, Any
 import time
-from ..config.settings import GROQ_API_KEY, GROQ_BASE_URL, GROQ_MODEL
+from ..config.settings import (
+    GROQ_API_KEY, 
+    GROQ_BASE_URL, 
+    GROQ_VISION_MODEL,  # Changed from GROQ_MODEL
+    GROQ_COMMAND_MODEL
+)
 
 class GroqService:
     def __init__(self):
@@ -24,7 +29,7 @@ class GroqService:
     def analyze_image(self, base64_image: str, context: str) -> str:
         try:
             payload = {
-                "model": GROQ_MODEL,
+                "model": GROQ_VISION_MODEL,  # Changed from GROQ_MODEL
                 "messages": [
                     {
                         "role": "user",
@@ -58,3 +63,25 @@ class GroqService:
             raise Exception("Request to Groq API timed out")
         except Exception as e:
             raise Exception(f"Unexpected error with Groq API: {str(e)}")
+    
+    def generate_command(self, prompt: str, timeout: int = 30) -> str:
+        """Generate command using Groq API."""
+        try:
+            payload = {
+                "model": GROQ_COMMAND_MODEL,
+                "messages": [{"role": "user", "content": prompt}]
+            }
+            
+            response = self.session.post(
+                f"{GROQ_BASE_URL}/chat/completions",
+                headers=self.headers,
+                json=payload,
+                timeout=timeout
+            )
+            
+            if response.status_code == 200:
+                return response.json()['choices'][0]['message']['content']
+            raise Exception(f"Groq API error: {response.text}")
+            
+        except Exception as e:
+            raise Exception(f"Command generation failed: {str(e)}")
