@@ -7,6 +7,13 @@ from typing import Optional
 import time
 from queue import Queue
 import re
+import asyncio
+import sys
+from src.services.groq_service import GroqService
+from src.services.screenshot_service import ScreenshotService
+from src.utils.text_utils import TextUtils
+import socket
+from functools import partial
 
 class LoadingAnimation:
     def __init__(self, label: ttk.Label):
@@ -62,14 +69,43 @@ class OllamaGUI:
         display_frame.grid_columnconfigure(1, weight=1)
         display_frame.grid_rowconfigure(1, weight=1)
 
+        # Split thoughts frame into two parts
+        thoughts_container = ttk.Frame(display_frame)
+        thoughts_container.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        thoughts_container.grid_rowconfigure(0, weight=1)
+        thoughts_container.grid_rowconfigure(1, weight=1)
+        
         # Thoughts display
         ttk.Label(display_frame, text="Thoughts:").grid(row=0, column=0, sticky="w", padx=5)
-        self.thoughts_display = scrolledtext.ScrolledText(display_frame, wrap=tk.WORD, bg='#1e1e1e', fg='#a8c9ff', height=10)
-        self.thoughts_display.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        self.thoughts_display = scrolledtext.ScrolledText(
+            thoughts_container, 
+            wrap=tk.WORD, 
+            bg='#1e1e1e', 
+            fg='#a8c9ff', 
+            height=10
+        )
+        self.thoughts_display.grid(row=0, column=0, sticky="nsew")
+        
+        # Vision display
+        ttk.Label(thoughts_container, text="Vision Analysis:").grid(row=1, column=0, sticky="w", padx=5, pady=(5,0))
+        self.vision_display = scrolledtext.ScrolledText(
+            thoughts_container, 
+            wrap=tk.WORD, 
+            bg='#1e1e1e', 
+            fg='#ff9e64', 
+            height=10
+        )
+        self.vision_display.grid(row=2, column=0, sticky="nsew", pady=(5,0))
 
-        # Actions display
+        # Actions display (remains unchanged)
         ttk.Label(display_frame, text="Actions:").grid(row=0, column=1, sticky="w", padx=5)
-        self.actions_display = scrolledtext.ScrolledText(display_frame, wrap=tk.WORD, bg='#1e1e1e', fg='#ffffff', height=10)
+        self.actions_display = scrolledtext.ScrolledText(
+            display_frame, 
+            wrap=tk.WORD, 
+            bg='#1e1e1e', 
+            fg='#ffffff', 
+            height=20
+        )
         self.actions_display.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
         
         # Input frame
@@ -84,9 +120,19 @@ class OllamaGUI:
         self.send_button = ttk.Button(input_frame, text="Send", command=self.send_message)
         self.send_button.grid(row=0, column=1, padx=5)
         
+        # Add cancel button next to send button
+        self.cancel_button = ttk.Button(
+            input_frame, 
+            text="Cancel", 
+            command=self.cancel_operation,
+            state="disabled"
+        )
+        self.cancel_button.grid(row=0, column=2, padx=5)
+        
         # Add loading indicator
         self.loading_label = ttk.Label(input_frame, text="")
         self.loading_label.grid(row=0, column=3, padx=5)
+        
         self.loading_animation = LoadingAnimation(self.loading_label)
         
         # Initialize Ollama client
@@ -100,12 +146,26 @@ class OllamaGUI:
         self.last_input_time = 0
         self.is_connected = False
         
-        # Start update loop and connection check
-        self.check_connection()
-        self.start_update_loop()
+        # Add service initialization
+        self.groq_service = GroqService()
+        self.screenshot_service = ScreenshotService()
+        
+        # Create event loop
+        self.loop = asyncio.get_event_loop()
+        
+        # Start update loop and connection check using after method
+        self.root.after(100, self.check_connection)
+        self.root.after(50, self.start_update_loop)
         
         # Bind cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self.cleanup)
+        
+        # Add retry settings
+        self.max_retries = 3
+        self.retry_delay = 1  # seconds
+        
+        # Add cancel flag
+        self.is_cancelled = False
     
     def cleanup(self) -> None:
         """Clean up resources before closing."""
@@ -114,16 +174,18 @@ class OllamaGUI:
         self.root.destroy()
     
     def check_connection(self) -> None:
-        """Check Ollama server connection status."""
+        """Check Ollama server connection status with retry."""
         try:
             self.client.list()
             if not self.is_connected:
                 self.status_label.config(text="🟢 Connected")
                 self.is_connected = True
-        except Exception:
+        except Exception as e:
             self.status_label.config(text="⚫ Disconnected")
             self.is_connected = False
-        self.root.after(5000, self.check_connection)
+            self.queue_update('error', f"Connection error: {str(e)}\n")
+        finally:
+            self.root.after(5000, self.check_connection)
     
     def send_message(self, event=None) -> None:
         """Handle message sending with debouncing."""
@@ -144,9 +206,58 @@ class OllamaGUI:
             self.actions_display.insert(tk.END, "Error: Not connected to Ollama server\n\n")
             return
         
+        self.is_cancelled = False
+        self.cancel_button.configure(state="normal")
         self.loading_animation.start()
         self.send_button.configure(state="disabled")
-        self.thread_pool.submit(self.get_response, user_input)
+        self.loop.create_task(self.process_input(user_input))
+    
+    async def process_input(self, user_input: str) -> None:
+        retries = 0
+        while retries < self.max_retries and not self.is_cancelled:
+            try:
+                # Take screenshot and analyze
+                screenshot = self.screenshot_service.capture_and_encode()
+                context = TextUtils.read_context("context.txt")
+                
+                # Get vision analysis with timeout
+                vision_future = self.loop.run_in_executor(
+                    None,
+                    partial(self.groq_service.analyze_image, screenshot, context)
+                )
+                
+                try:
+                    vision_response = await asyncio.wait_for(vision_future, timeout=30)
+                except asyncio.TimeoutError:
+                    raise Exception("Vision analysis timed out")
+                
+                self.vision_display.insert(tk.END, f"Vision Analysis:\n{vision_response}\n\n")
+                self.vision_display.see(tk.END)
+                
+                # Combine with user input and context2
+                context2 = TextUtils.read_context("context2.txt")
+                combined_prompt = f"{context2}\n\nUser Input: {user_input}\n\nVision Analysis: {vision_response}"
+                
+                # Send to Ollama
+                await self.loop.run_in_executor(None, self.get_response, combined_prompt)
+                break  # Success, exit retry loop
+                
+            except (ConnectionResetError, socket.error, requests.exceptions.RequestException) as e:
+                retries += 1
+                if retries >= self.max_retries:
+                    self.queue_update('error', f"Connection failed after {retries} attempts: {str(e)}\n\n")
+                    break
+                    
+                self.queue_update('error', f"Connection attempt {retries} failed, retrying in {self.retry_delay} seconds...\n")
+                await asyncio.sleep(self.retry_delay)
+                
+            except Exception as e:
+                if self.is_cancelled:
+                    break
+                self.queue_update('error', f"Error: {str(e)}\n\n")
+                break
+        
+        self.root.after(0, self._reset_ui_state)
     
     def get_response(self, prompt: str) -> None:
         try:
@@ -155,6 +266,8 @@ class OllamaGUI:
             in_thought = False
             
             for chunk in self.client.generate(model=model, prompt=prompt, stream=True):
+                if self.is_cancelled:
+                    return
                 if chunk.get('response'):
                     text = chunk['response']
                     
@@ -175,7 +288,8 @@ class OllamaGUI:
             self.queue_update('newline', '')
             
         except Exception as e:
-            self.queue_update('error', f"Error: {str(e)}\n\n")
+            if not self.is_cancelled:
+                self.queue_update('error', f"Error: {str(e)}\n\n")
         finally:
             self.root.after(0, self._reset_ui_state)
     
@@ -183,6 +297,14 @@ class OllamaGUI:
         """Reset UI elements after processing."""
         self.loading_animation.stop()
         self.send_button.configure(state="normal")
+        self.cancel_button.configure(state="disabled")
+        self.is_cancelled = False
+    
+    def cancel_operation(self) -> None:
+        """Cancel ongoing operations."""
+        self.is_cancelled = True
+        self.queue_update('error', "Operation cancelled by user\n\n")
+        self._reset_ui_state()
     
     def queue_update(self, update_type: str, text: str) -> None:
         """Queue updates for batch processing."""
@@ -209,7 +331,32 @@ class OllamaGUI:
         
         self.root.after(50, self.start_update_loop)  # Run every 50ms
 
-if __name__ == "__main__":
+def main():
     root = tk.Tk()
+    root.title("AI Assistant")
+    
+    # Configure asyncio loop to work with tkinter
+    if sys.platform.startswith('win'):
+        # Windows specific event loop policy
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    loop = asyncio.get_event_loop()
+    
     app = OllamaGUI(root)
-    root.mainloop()
+    
+    # Function to periodically update asyncio loop
+    def update_async_loop():
+        loop.stop()
+        loop.run_forever()
+        root.after(100, update_async_loop)
+    
+    # Start the async loop update
+    root.after(100, update_async_loop)
+    
+    try:
+        root.mainloop()
+    finally:
+        loop.close()
+
+if __name__ == "__main__":
+    main()
