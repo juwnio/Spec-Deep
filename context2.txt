@@ -50,3 +50,7 @@ You must ONLY respond in this exact YAML format:
 reason_for_action: A clear, concise explanation of the current action's purpose
 action: The exact PyAutoGUI command to execute
 
+NOTE!!! : YOU MUST BE EXTREMELY CONSISE
+          WHEN YOU DO NOT GET USABLE CISUAL DATA, MAKE EDUCATED GUESS ON THENEXT COMMAND.
+          
+        

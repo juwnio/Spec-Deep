@@ -20,18 +20,40 @@ class ActionExecutor:
     def execute_command(action: str) -> bool:
         """Execute PyAutoGUI command safely."""
         try:
+            # Validate action format
             if not action or action.lower() == 'done':
                 return False
                 
-            # Remove any python formatting
-            action = action.replace('python', '').replace('```', '').strip()
+            # Parse command and parameters
+            parts = action.replace('pyautogui.', '').split('(')
+            if len(parts) != 2:
+                raise ValueError("Invalid command format")
+                
+            command = parts[0].strip()
+            params = parts[1].rstrip(')').split(',')
             
-            # Validate command starts with pyautogui
-            if not action.startswith('pyautogui.'):
-                raise ValueError(f"Invalid command format: {action}")
+            # Validate command exists in pyautogui
+            if not hasattr(pyautogui, command):
+                raise ValueError(f"Invalid command: {command}")
             
-            # Execute the command
-            exec(action)
+            # Parse parameters safely
+            parsed_params = []
+            for p in params:
+                p = p.strip()
+                try:
+                    # Handle string literals
+                    if p.startswith('"') or p.startswith("'"):
+                        parsed_params.append(p.strip("'\""))
+                    # Handle numeric values
+                    else:
+                        parsed_params.append(float(p) if '.' in p else int(p))
+                except ValueError:
+                    raise ValueError(f"Invalid parameter value: {p}")
+            
+            # Execute command with safety delay
+            pyautogui.PAUSE = 1.0  # Add safety delay between commands
+            func = getattr(pyautogui, command)
+            func(*parsed_params)
             return True
             
         except Exception as e:
