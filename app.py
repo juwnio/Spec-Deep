@@ -16,6 +16,7 @@ import socket
 from functools import partial
 from src.services.action_executor import ActionExecutor
 from src.utils.history_manager import HistoryManager
+from src.services.image_processor import ImageProcessor
 
 class LoadingAnimation:
     def __init__(self, label: ttk.Label):
