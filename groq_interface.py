@@ -1,3 +1,4 @@
+import customtkinter as ctk
 import tkinter as tk
 from tkinter import scrolledtext
 import requests
@@ -12,6 +13,7 @@ import win32gui
 import win32con
 import threading
 import itertools
+import math
 
 class WindowFocusManager:
     def __init__(self):
@@ -156,50 +158,28 @@ class LoadingAnimation:
         
     def stop(self):
         self.running = False
-        self.label.config(text="")
+        self.label.configure(text="")
         
     def animate(self):
         if self.running:
-            self.label.config(text=next(self.chars))
+            self.label.configure(text=next(self.chars))
             self.label.after(100, self.animate)
 
-class DarkTheme:
-    BG_DARK = "#1e1e1e"
-    BG_DARKER = "#252526"
-    FG_LIGHT = "#d4d4d4"
-    ACCENT = "#007acc"
-    INPUT_BG = "#3c3c3c"
+class UpdateQueue:
+    def __init__(self):
+        self.queue = []
+        self.lock = threading.Lock()
     
-    @classmethod
-    def configure(cls, widget):
-        if isinstance(widget, (tk.Text, scrolledtext.ScrolledText)):
-            widget.configure(
-                bg=cls.INPUT_BG,
-                fg=cls.FG_LIGHT,
-                insertbackground=cls.FG_LIGHT,
-                selectbackground=cls.ACCENT,
-                relief=tk.FLAT,
-                padx=10,
-                pady=5
-            )
-        elif isinstance(widget, tk.Button):
-            widget.configure(
-                bg=cls.ACCENT,
-                fg=cls.FG_LIGHT,
-                activebackground=cls.BG_DARKER,
-                activeforeground=cls.FG_LIGHT,
-                relief=tk.FLAT,
-                padx=20
-            )
-        elif isinstance(widget, tk.Label):
-            widget.configure(
-                bg=cls.BG_DARK,
-                fg=cls.FG_LIGHT
-            )
-        elif isinstance(widget, tk.Frame):
-            widget.configure(
-                bg=cls.BG_DARK
-            )
+    def add_update(self, reason, action):
+        with self.lock:
+            self.queue.append((reason, action))
+    
+    def process_updates(self, interface):
+        with self.lock:
+            if self.queue:
+                reason, action = self.queue[-1]  # Get most recent update
+                self.queue.clear()
+                interface.update_status(reason, action)
 
 class ResponseParser:
     @staticmethod
@@ -219,27 +199,14 @@ class ResponseParser:
         
         return reason, action
 
-class UpdateQueue:
-    def __init__(self):
-        self.queue = []
-        self.lock = threading.Lock()
-    
-    def add_update(self, reason, action):
-        with self.lock:
-            self.queue.append((reason, action))
-    
-    def process_updates(self, interface):
-        with self.lock:
-            if self.queue:
-                reason, action = self.queue[-1]  # Get most recent update
-                self.queue.clear()
-                interface.update_status(reason, action)
-
 class GroqInterface:
     def __init__(self, root):
         self.root = root
         self.root.title("Task Automation")
-        self.root.configure(bg=DarkTheme.BG_DARK)
+        
+        # Set CustomTkinter theme
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
         
         # Initialize components
         self.focus_manager = WindowFocusManager()
@@ -264,64 +231,82 @@ class GroqInterface:
         self.root.after(100, self.schedule_updates)
 
     def create_widgets(self):
-        # Main container
-        main_frame = tk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        DarkTheme.configure(main_frame)
+        # Main container with padding
+        main_frame = ctk.CTkFrame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
         
         # Task input section
-        task_frame = tk.Frame(main_frame)
-        task_frame.pack(fill=tk.X, pady=(0, 20))
-        DarkTheme.configure(task_frame)
+        task_frame = ctk.CTkFrame(main_frame)
+        task_frame.pack(fill=tk.X, pady=(0, 25))
         
-        task_label = tk.Label(task_frame, text="Task:")
-        task_label.pack(anchor='w', pady=(0, 5))
-        DarkTheme.configure(task_label)
+        task_label = ctk.CTkLabel(
+            task_frame,
+            text="Task:",
+            font=("Segoe UI", 14, "bold")
+        )
+        task_label.pack(anchor='w', pady=(15, 5), padx=15)
         
-        self.input_text = tk.Text(task_frame, height=3)
-        self.input_text.pack(fill=tk.X)
-        DarkTheme.configure(self.input_text)
+        self.input_text = ctk.CTkTextbox(
+            task_frame,
+            height=80,
+            font=("Segoe UI", 12)
+        )
+        self.input_text.pack(fill=tk.X, padx=15)
         
-        button_frame = tk.Frame(task_frame)
-        button_frame.pack(fill=tk.X, pady=(10, 0))
-        DarkTheme.configure(button_frame)
+        button_frame = ctk.CTkFrame(task_frame)
+        button_frame.pack(fill=tk.X, pady=(15, 15), padx=15)
         
-        submit_btn = tk.Button(button_frame, text="Execute Task", command=self.process_workflow)
+        # Execute button
+        submit_btn = ctk.CTkButton(
+            button_frame,
+            text="Execute Task",
+            command=self.process_workflow,
+            font=("Segoe UI", 12, "bold")
+        )
         submit_btn.pack(side=tk.LEFT)
-        DarkTheme.configure(submit_btn)
         
         # Loading animation
-        self.loading_label = tk.Label(button_frame, text="", width=2)
-        self.loading_label.pack(side=tk.LEFT, padx=10)
-        DarkTheme.configure(self.loading_label)
+        self.loading_label = ctk.CTkLabel(button_frame, text="", width=30)
+        self.loading_label.pack(side=tk.LEFT, padx=15)
         self.loading_animation = LoadingAnimation(self.loading_label)
         
         # Status section
-        status_frame = tk.Frame(main_frame)
+        status_frame = ctk.CTkFrame(main_frame)
         status_frame.pack(fill=tk.BOTH, expand=True)
-        DarkTheme.configure(status_frame)
         
         # Reason panel
-        reason_label = tk.Label(status_frame, text="Reason for Action:")
-        reason_label.pack(anchor='w', pady=(0, 5))
-        DarkTheme.configure(reason_label)
+        reason_label = ctk.CTkLabel(
+            status_frame,
+            text="Reason for Action:",
+            font=("Segoe UI", 12, "bold")
+        )
+        reason_label.pack(anchor='w', pady=(15, 5), padx=15)
         
-        self.reason_text = scrolledtext.ScrolledText(status_frame, height=3)
-        self.reason_text.pack(fill=tk.X)
-        DarkTheme.configure(self.reason_text)
+        self.reason_text = ctk.CTkTextbox(
+            status_frame,
+            height=80,
+            font=("Segoe UI", 12)
+        )
+        self.reason_text.pack(fill=tk.X, padx=15)
         
         # Action panel
-        action_label = tk.Label(status_frame, text="Action:")
-        action_label.pack(anchor='w', pady=(10, 5))
-        DarkTheme.configure(action_label)
+        action_label = ctk.CTkLabel(
+            status_frame,
+            text="Action:",
+            font=("Segoe UI", 12, "bold")
+        )
+        action_label.pack(anchor='w', pady=(15, 5), padx=15)
         
-        self.action_text = scrolledtext.ScrolledText(status_frame, height=3)
-        self.action_text.pack(fill=tk.X)
-        DarkTheme.configure(self.action_text)
+        self.action_text = ctk.CTkTextbox(
+            status_frame,
+            height=80,
+            font=("Segoe UI", 12)
+        )
+        self.action_text.pack(fill=tk.X, padx=15, pady=(0, 15))
         
-        # Make text widgets read-only by default
-        self.reason_text.config(state=tk.DISABLED)
-        self.action_text.config(state=tk.DISABLED)
+        # Make text widgets read-only
+        self.reason_text.configure(state="disabled")
+        self.action_text.configure(state="disabled")
 
     def process_workflow(self):
         if self.processing:
@@ -348,16 +333,16 @@ class GroqInterface:
             
         def _update():
             if reason:
-                self.reason_text.config(state=tk.NORMAL)
+                self.reason_text.configure(state="normal")
                 self.reason_text.delete("1.0", tk.END)
                 self.reason_text.insert(tk.END, reason)
-                self.reason_text.config(state=tk.DISABLED)
+                self.reason_text.configure(state="disabled")
             
             if action:
-                self.action_text.config(state=tk.NORMAL)
+                self.action_text.configure(state="normal")
                 self.action_text.delete("1.0", tk.END)
                 self.action_text.insert(tk.END, action)
-                self.action_text.config(state=tk.DISABLED)
+                self.action_text.configure(state="disabled")
                 
         self.root.after(0, _update)
 
@@ -515,7 +500,7 @@ class GroqInterface:
             return ""
 
 if __name__ == "__main__":
-    root = tk.Tk()
+    root = ctk.CTk()
     app = GroqInterface(root)
-    root.geometry("600x400")
+    root.geometry("600x500")
     root.mainloop()

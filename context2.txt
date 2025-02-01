@@ -50,7 +50,7 @@ KEYBOARD SHORTCUTS PRIORITY:
 7. Win+R - For run dialog
 
 VALID COMMANDS:
-- pyautogui.click(x, y)
+- pyautogui.press(enter) #Best for opening Programs after typing them in search bar.
 - pyautogui.doubleClick(x, y)
 - pyautogui.rightClick(x, y)
 - pyautogui.moveTo(x, y)
