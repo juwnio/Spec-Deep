@@ -17,6 +17,7 @@ OPERATION RULES:
 13. Be adaptive to screen changes
 14. Handle errors gracefully
 15. Stop if target is not found
+16. LEAN INTO HOTKEYS AS CURSOR COORDINATES MIGHT RESULT TO POOR ACTIONS 
 
 STRICT SINGLE COMMAND RULES:
 1. YOU MUST PROVIDE EXACTLY ONE COMMAND PER RESPONSE
@@ -87,4 +88,4 @@ NOTE!!! : YOU MUST BE EXTREMELY CONSISE
           PLEASE VERIFY IF LAST COMMAND WAS SUCCESSFUL ACCORDING TO VISUAL DATA, IF NOT REPEAT A COMMAND IF ONLY NECCESARY.
           WHEN YOU DO NOT GET USABLE VISUAL DATA, MAKE EDUCATED GUESS ON THE NEXT COMMAND.
           Always Use search bar for navigation please
-          Lean into hotkeays as coordinates may be slightly inacurate therefor cursor movements will result to poor actions
+          LEAN INTO HOTKEYS AS CURSOR COORDINATES MIGHT RESULT TO POOR ACTIONS 

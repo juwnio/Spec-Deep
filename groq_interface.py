@@ -201,6 +201,40 @@ class DarkTheme:
                 bg=cls.BG_DARK
             )
 
+class ResponseParser:
+    @staticmethod
+    def parse_response(response_text):
+        # Strip any extra whitespace and normalize newlines
+        response_text = response_text.strip().replace('\r\n', '\n')
+        
+        # Extract reason and action using more precise patterns
+        reason_pattern = r'reason_for_action:\s*(.+?)(?=\naction:|$)'
+        action_pattern = r'action:\s*(.+?)(?=\nreason_for_action:|$)'
+        
+        reason_match = re.search(reason_pattern, response_text, re.DOTALL)
+        action_match = re.search(action_pattern, response_text, re.DOTALL)
+        
+        reason = reason_match.group(1).strip() if reason_match else ""
+        action = action_match.group(1).strip() if action_match else ""
+        
+        return reason, action
+
+class UpdateQueue:
+    def __init__(self):
+        self.queue = []
+        self.lock = threading.Lock()
+    
+    def add_update(self, reason, action):
+        with self.lock:
+            self.queue.append((reason, action))
+    
+    def process_updates(self, interface):
+        with self.lock:
+            if self.queue:
+                reason, action = self.queue[-1]  # Get most recent update
+                self.queue.clear()
+                interface.update_status(reason, action)
+
 class GroqInterface:
     def __init__(self, root):
         self.root = root
@@ -214,8 +248,20 @@ class GroqInterface:
         self.vision_processor = VisionProcessor(self.api_key, self.base_url, self.root, self.focus_manager)
         self.command_processor = CommandProcessor()
         self.automation_state = AutomationState()
+        self.update_queue = UpdateQueue()
+        self.response_parser = ResponseParser()
+        self.processing = False
+        
+        # Add periodic update checker
+        self.schedule_updates()
         
         self.create_widgets()
+
+    def schedule_updates(self):
+        """Schedule periodic UI updates"""
+        if not self.processing:
+            self.update_queue.process_updates(self)
+        self.root.after(100, self.schedule_updates)
 
     def create_widgets(self):
         # Main container
@@ -272,8 +318,15 @@ class GroqInterface:
         self.action_text = scrolledtext.ScrolledText(status_frame, height=3)
         self.action_text.pack(fill=tk.X)
         DarkTheme.configure(self.action_text)
+        
+        # Make text widgets read-only by default
+        self.reason_text.config(state=tk.DISABLED)
+        self.action_text.config(state=tk.DISABLED)
 
     def process_workflow(self):
+        if self.processing:
+            return  # Prevent multiple simultaneous runs
+        self.processing = True
         self.loading_animation.start()
         threading.Thread(target=self._process_workflow_thread, daemon=True).start()
 
@@ -285,14 +338,27 @@ class GroqInterface:
         except Exception as e:
             self.log_error(f"Workflow error: {str(e)}")
         finally:
+            self.processing = False
             self.root.after(0, self.loading_animation.stop)
 
     def update_status(self, reason, action):
+        """Update the status displays"""
+        if not reason and not action:
+            return
+            
         def _update():
-            self.reason_text.delete("1.0", tk.END)
-            self.reason_text.insert(tk.END, reason)
-            self.action_text.delete("1.0", tk.END)
-            self.action_text.insert(tk.END, action)
+            if reason:
+                self.reason_text.config(state=tk.NORMAL)
+                self.reason_text.delete("1.0", tk.END)
+                self.reason_text.insert(tk.END, reason)
+                self.reason_text.config(state=tk.DISABLED)
+            
+            if action:
+                self.action_text.config(state=tk.NORMAL)
+                self.action_text.delete("1.0", tk.END)
+                self.action_text.insert(tk.END, action)
+                self.action_text.config(state=tk.DISABLED)
+                
         self.root.after(0, _update)
 
     def execute_automation_loop(self, user_prompt):
@@ -436,33 +502,17 @@ class GroqInterface:
             result = response.json()
             response_text = result['choices'][0]['message']['content']
             
-            # Extract reason and action
-            reason_match = re.search(r'reason_for_action:\s*(.*?)\n', response_text)
-            action_match = re.search(r'action:\s*(.*?)(?:\n|$)', response_text)
+            # Use the ResponseParser to extract reason and action
+            reason, action = self.response_parser.parse_response(response_text)
             
-            reason = reason_match.group(1) if reason_match else ""
-            action = action_match.group(1) if action_match else ""
+            # Queue the update instead of updating directly
+            self.update_queue.add_update(reason, action)
             
-            self.update_status(reason, action)
             return response_text
             
         except Exception as e:
-            self.update_status("Error", str(e))
+            self.update_queue.add_update("Error", str(e))
             return ""
-
-    def parse_response(self, response_text):
-        think_pattern = r'<think>(.*?)</think>'
-        think_match = re.search(think_pattern, response_text, re.DOTALL)
-        
-        if think_match:
-            think_content = think_match.group(1).strip()
-            # Get everything after </think>
-            action_content = re.split(r'</think>', response_text)[-1].strip()
-        else:
-            think_content = ""
-            action_content = response_text
-            
-        return think_content, action_content
 
 if __name__ == "__main__":
     root = tk.Tk()

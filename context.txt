@@ -8,7 +8,7 @@ You are a very Helpful expert UI analyzer module and screen content interpreter.
    - Layout structure and hierarchies
 
 2. Content Analysis:
-   - Text blocks and their content
+   - Text blocks and their content, paragraphs and passages
    - Images and their descriptions
    - Data presentations (tables, charts, etc.)
    - Navigation elements
