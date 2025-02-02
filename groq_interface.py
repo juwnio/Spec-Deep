@@ -112,12 +112,24 @@ class AutomationState:
         self.error_count = 0
         self.max_retries = 3
         self.current_task = None
+        self.last_action_time = 0
+        self.min_action_interval = 2.0  # Minimum seconds between actions
+        self.verification_retries = 3
+        self.verification_delay = 1.0  # Seconds to wait before verifying
 
     def add_command_to_history(self, command):
         self.command_history.append({
             'command': command,
             'timestamp': time.strftime('%H:%M:%S')
         })
+
+    def can_execute_next_action(self):
+        """Check if enough time has passed since last action"""
+        current_time = time.time()
+        if current_time - self.last_action_time >= self.min_action_interval:
+            self.last_action_time = current_time
+            return True
+        return False
 
 class CommandProcessor:
     def __init__(self):
@@ -400,25 +412,34 @@ class GroqInterface:
         
         while not self.automation_state.task_completed:
             try:
+                # Rate limiting check
+                if not self.automation_state.can_execute_next_action():
+                    time.sleep(0.5)  # Short sleep if we need to wait
+                    continue
+
                 # Get vision analysis
                 vision_response = self.get_vision_analysis()
                 if not vision_response:
+                    self.automation_state.error_count += 1
                     continue
 
                 # Get DeepSeek response
                 deepseek_response = self.get_deepseek_response(vision_response, user_prompt)
                 if not deepseek_response:
+                    self.automation_state.error_count += 1
                     continue
 
-                # Extract commands after response has been processed
+                # Extract commands
                 commands = self.command_processor.extract_commands(deepseek_response)
                 if not commands:
+                    self.automation_state.error_count += 1
                     continue
 
-                # Execute command
+                # Execute command with verification
                 cmd = commands[0]
-                if self.execute_single_command(cmd):
+                if self.execute_and_verify_command(cmd, vision_response):
                     self.automation_state.add_command_to_history(cmd)
+                    self.automation_state.error_count = 0  # Reset error count on success
                 else:
                     self.automation_state.error_count += 1
                     if self.automation_state.error_count >= self.automation_state.max_retries:
@@ -427,15 +448,58 @@ class GroqInterface:
 
                 # Check for completion
                 if self.check_task_completion(deepseek_response):
-                    break
+                    # Verify completion state
+                    time.sleep(self.automation_state.verification_delay)
+                    final_vision = self.get_vision_analysis()
+                    if self.verify_completion(final_vision):
+                        break
+                    else:
+                        continue
 
-                time.sleep(3)
+                # Ensure minimum delay between iterations
+                time.sleep(self.automation_state.verification_delay)
                 self.root.update()
 
             except Exception as e:
                 self.log_error(f"Loop iteration error: {str(e)}")
+                self.automation_state.error_count += 1
                 if self.automation_state.error_count >= self.automation_state.max_retries:
                     break
+
+    def execute_and_verify_command(self, command, previous_vision):
+        """Execute command and verify its effect"""
+        try:
+            if not self.command_processor.execute_command(command):
+                return False
+
+            # Wait for action to take effect
+            time.sleep(self.automation_state.verification_delay)
+            
+            # Get new vision analysis
+            new_vision = self.get_vision_analysis()
+            if new_vision == previous_vision:
+                # No change detected, might need retry
+                return False
+
+            self.automation_state.last_command_executed = command
+            return True
+
+        except Exception as e:
+            self.log_error(f"Command execution/verification error: {str(e)}")
+            return False
+
+    def verify_completion(self, vision_response):
+        """Verify that the task is actually completed"""
+        try:
+            # Add specific completion verification logic based on the task
+            if "error" in vision_response.lower() or "fail" in vision_response.lower():
+                return False
+                
+            # Basic verification passed
+            return True
+        except Exception as e:
+            self.log_error(f"Completion verification error: {str(e)}")
+            return False
 
     def get_vision_analysis(self):
         try:
