@@ -104,7 +104,7 @@ Configuration Files
 
 1. Start the program:
    ```bash
-   python groq_interface.py
+   python app.py
    ```
 
 2. Enter your task in the input field
