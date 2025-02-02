@@ -1,0 +1,9 @@
+customtkinter>=5.2.0
+pyautogui>=0.9.54
+Pillow>=10.0.0  # Required by pyautogui for screenshots
+requests>=2.31.0
+python-dotenv>=1.0.0  # For environment variables
+pywin32>=306  # For Windows-specific functionality
+wheel>=0.41.2  # Required for some package installations
+setuptools>=68.0.0  # Required for some package installations
+typing-extensions>=4.7.1  # For type hints
