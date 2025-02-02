@@ -15,6 +15,9 @@ import threading
 import itertools
 import math
 from response_handler import ModelResponseHandler
+from response_display_manager import ResponseDisplayManager
+from completion_dialog import CompletionDialog
+from model_selector import ModelSelector
 
 # Configure PyAutoGUI failsafe
 pyautogui.FAILSAFE = True  # Enables failsafe corner trigger
@@ -229,6 +232,9 @@ class GroqInterface:
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
         
+        # Create widgets before other components
+        self.create_widgets()
+        
         # Initialize components
         self.focus_manager = WindowFocusManager()
         self.api_key = "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"
@@ -239,15 +245,15 @@ class GroqInterface:
         self.update_queue = UpdateQueue()
         self.response_parser = ResponseParser()
         self.processing = False
+        self.display_manager = ResponseDisplayManager(self)
         self.response_handler = ModelResponseHandler(self)
         self.safety_monitor = None
         self.safety_check_interval = 100  # ms
         self.start_safety_monitoring()
+        self.completion_dialog = None
         
         # Add periodic update checker
         self.schedule_updates()
-        
-        self.create_widgets()
 
     def start_safety_monitoring(self):
         """Start monitoring for safety trigger conditions"""
@@ -292,6 +298,9 @@ class GroqInterface:
         # Main container with padding
         main_frame = ctk.CTkFrame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
+        
+        # Add model selector at the top
+        self.model_selector = ModelSelector(main_frame)
         
         # Task input section
         task_frame = ctk.CTkFrame(main_frame)
@@ -388,24 +397,8 @@ class GroqInterface:
             self.root.after(0, self.loading_animation.stop)
 
     def update_status(self, reason, action):
-        """Update the status displays"""
-        if not reason and not action:
-            return
-            
-        def _update():
-            if reason:
-                self.reason_text.configure(state="normal")
-                self.reason_text.delete("1.0", tk.END)
-                self.reason_text.insert(tk.END, reason)
-                self.reason_text.configure(state="disabled")
-            
-            if action:
-                self.action_text.configure(state="normal")
-                self.action_text.delete("1.0", tk.END)
-                self.action_text.insert(tk.END, action)
-                self.action_text.configure(state="disabled")
-                
-        self.root.after(0, _update)
+        """Update the status displays using display manager"""
+        self.display_manager.update_displays(reason=reason, action=action)
 
     def execute_automation_loop(self, user_prompt):
         self.automation_state.current_task = user_prompt
@@ -538,8 +531,21 @@ class GroqInterface:
         if ("reason_for_action: Task successfully completed" in response and 
             "action: done" in response):
             self.automation_state.task_completed = True
+            # Stop processing
+            self.processing = False
+            # Stop loading animation
+            self.loading_animation.stop()
+            # Cancel safety monitor
+            if self.safety_monitor:
+                self.root.after_cancel(self.safety_monitor)
+            # Show completion dialog
+            self.show_completion_dialog()
             return True
         return False
+
+    def show_completion_dialog(self):
+        """Show task completion dialog"""
+        self.root.after(0, lambda: CompletionDialog(self.root))
 
     def execute_single_command(self, command):
         try:
@@ -586,7 +592,7 @@ class GroqInterface:
         }
         
         data = {
-            "model": "deepseek-r1-distill-llama-70b",
+            "model": self.model_selector.get_selected_model(),
             "messages": [{"role": "user", "content": prompt}]
         }
         
@@ -597,13 +603,16 @@ class GroqInterface:
             result = response.json()
             response_text = result['choices'][0]['message']['content']
             
-            # Use the new response handler
+            # Process response through handler
             reason, action = self.response_handler.process_response(response_text)
             
             return response_text
             
         except Exception as e:
-            self.update_queue.add_update("Error", str(e))
+            self.display_manager.update_displays(
+                reason="Error occurred",
+                action=str(e)
+            )
             return ""
 
 if __name__ == "__main__":
