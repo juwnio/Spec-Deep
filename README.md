@@ -104,7 +104,7 @@ Configuration Files
 
 1. Start the program:
    ```bash
-   python app.py
+   python spec.py
    ```
 
 2. Enter your task in the input field
