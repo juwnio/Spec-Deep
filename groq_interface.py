@@ -16,6 +16,12 @@ import itertools
 import math
 from response_handler import ModelResponseHandler
 
+# Configure PyAutoGUI failsafe
+pyautogui.FAILSAFE = True  # Enables failsafe corner trigger
+pyautogui.FAILSAFE_POINTS = [(0, 0), (0, pyautogui.size()[1]-1),
+                            (pyautogui.size()[0]-1, 0), 
+                            (pyautogui.size()[0]-1, pyautogui.size()[1]-1)]
+
 class WindowFocusManager:
     def __init__(self):
         self.last_active_window = None
@@ -222,11 +228,47 @@ class GroqInterface:
         self.response_parser = ResponseParser()
         self.processing = False
         self.response_handler = ModelResponseHandler(self)
+        self.safety_monitor = None
+        self.safety_check_interval = 100  # ms
+        self.start_safety_monitoring()
         
         # Add periodic update checker
         self.schedule_updates()
         
         self.create_widgets()
+
+    def start_safety_monitoring(self):
+        """Start monitoring for safety trigger conditions"""
+        def check_safety():
+            try:
+                x, y = pyautogui.position()
+                screen_width, screen_height = pyautogui.size()
+                corner_threshold = 5  # pixels from corner
+                
+                # Check if cursor is near any corner
+                if ((x <= corner_threshold and y <= corner_threshold) or  # Top-left
+                    (x >= screen_width - corner_threshold and y <= corner_threshold) or  # Top-right
+                    (x <= corner_threshold and y >= screen_height - corner_threshold) or  # Bottom-left
+                    (x >= screen_width - corner_threshold and y >= screen_height - corner_threshold)):  # Bottom-right
+                    self.emergency_stop("Safety trigger activated: Cursor in corner")
+                
+                # Schedule next check if not stopped
+                if self.processing:
+                    self.safety_monitor = self.root.after(self.safety_check_interval, check_safety)
+            except Exception as e:
+                print(f"Safety monitor error: {e}")
+
+        self.safety_monitor = self.root.after(self.safety_check_interval, check_safety)
+
+    def emergency_stop(self, reason):
+        """Handle emergency stop procedure"""
+        print(f"Emergency Stop: {reason}")
+        self.processing = False
+        self.automation_state.task_completed = True
+        self.log_error(f"Emergency Stop: {reason}")
+        self.loading_animation.stop()
+        if self.safety_monitor:
+            self.root.after_cancel(self.safety_monitor)
 
     def schedule_updates(self):
         """Schedule periodic UI updates"""
@@ -317,6 +359,7 @@ class GroqInterface:
             return  # Prevent multiple simultaneous runs
         self.processing = True
         self.loading_animation.start()
+        self.start_safety_monitoring()  # Restart safety monitoring
         threading.Thread(target=self._process_workflow_thread, daemon=True).start()
 
     def _process_workflow_thread(self):
@@ -328,6 +371,8 @@ class GroqInterface:
             self.log_error(f"Workflow error: {str(e)}")
         finally:
             self.processing = False
+            if self.safety_monitor:
+                self.root.after_cancel(self.safety_monitor)
             self.root.after(0, self.loading_animation.stop)
 
     def update_status(self, reason, action):
