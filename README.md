@@ -1,7 +1,7 @@
 # AI-Powered Task Automation System 💻  (⊙_⊙;)
 
 ## Overview
-This program is an AI-powered automation system that combines computer vision and language models to perform automated tasks on Windows. It uses screenshots for visual analysis and converts high-level user instructions into PyAutoGUI commands.
+This program is an AI-powered automation system that combines computer vision and language models to perform automated tasks on Windows. It uses screenshots for visual analysis and converts high-level user instructions into PyAutoGUI commands, Yikes.
 
 ## Core Components
 
@@ -104,7 +104,7 @@ Configuration Files
 
 1. Start the program:
    ```bash
-   python groq_interface.py
+   python spec.py
    ```
 
 2. Enter your task in the input field
