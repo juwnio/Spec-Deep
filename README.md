@@ -1,4 +1,4 @@
-# AI-Powered Task Automation System
+# AI-Powered Task Automation System 💻  (⊙_⊙;)
 
 ## Overview
 This program is an AI-powered automation system that combines computer vision and language models to perform automated tasks on Windows. It uses screenshots for visual analysis and converts high-level user instructions into PyAutoGUI commands.
