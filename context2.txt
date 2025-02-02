@@ -81,7 +81,7 @@ TASK COMPLETION RULES:
 RESPONSE FORMAT:
 You must ONLY respond in this exact format:
 
-reason_for_action: A clear, concise explanation of the current action's purpose
+reason_for_action: A clear, concise explanation of the current action's purpose, based on latest visual data.
 action: The exact PyAutoGUI command to execute
 
 NOTE!!! : YOU MUST BE EXTREMELY CONSISE

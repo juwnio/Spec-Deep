@@ -14,6 +14,7 @@ import win32con
 import threading
 import itertools
 import math
+from response_handler import ModelResponseHandler
 
 class WindowFocusManager:
     def __init__(self):
@@ -187,13 +188,15 @@ class ResponseParser:
         # Strip any extra whitespace and normalize newlines
         response_text = response_text.strip().replace('\r\n', '\n')
         
+        # Look for patterns after any potential <think> tag
+        think_split = response_text.split('</think>')
+        text_to_parse = think_split[-1] if len(think_split) > 1 else response_text
+        
         # Extract reason and action using more precise patterns
-        reason_pattern = r'reason_for_action:\s*(.+?)(?=\naction:|$)'
-        action_pattern = r'action:\s*(.+?)(?=\nreason_for_action:|$)'
+        reason_match = re.search(r'reason_for_action:\s*(.*?)(?=\naction:|$)', text_to_parse, re.DOTALL)
+        action_match = re.search(r'action:\s*(.*?)(?=\nreason_for_action:|$)', text_to_parse, re.DOTALL)
         
-        reason_match = re.search(reason_pattern, response_text, re.DOTALL)
-        action_match = re.search(action_pattern, response_text, re.DOTALL)
-        
+        # Extract and clean the matches
         reason = reason_match.group(1).strip() if reason_match else ""
         action = action_match.group(1).strip() if action_match else ""
         
@@ -218,6 +221,7 @@ class GroqInterface:
         self.update_queue = UpdateQueue()
         self.response_parser = ResponseParser()
         self.processing = False
+        self.response_handler = ModelResponseHandler(self)
         
         # Add periodic update checker
         self.schedule_updates()
@@ -361,17 +365,13 @@ class GroqInterface:
                 if not deepseek_response:
                     continue
 
-                # Check for completion
-                if self.check_task_completion(deepseek_response):
-                    break
-
-                # Extract single command
+                # Extract commands after response has been processed
                 commands = self.command_processor.extract_commands(deepseek_response)
                 if not commands:
                     continue
 
-                # Execute only the first command
-                cmd = commands[0]  # Take only the first command
+                # Execute command
+                cmd = commands[0]
                 if self.execute_single_command(cmd):
                     self.automation_state.add_command_to_history(cmd)
                 else:
@@ -380,13 +380,15 @@ class GroqInterface:
                         self.log_error("Max retries reached. Stopping automation.")
                         break
 
-                # Wait before next iteration
+                # Check for completion
+                if self.check_task_completion(deepseek_response):
+                    break
+
                 time.sleep(3)
                 self.root.update()
 
             except Exception as e:
                 self.log_error(f"Loop iteration error: {str(e)}")
-                self.automation_state.error_count += 1
                 if self.automation_state.error_count >= self.automation_state.max_retries:
                     break
 
@@ -435,7 +437,6 @@ class GroqInterface:
             success = self.command_processor.execute_command(command)
             if success:
                 self.automation_state.last_command_executed = command
-                self.log_status(f"Executed: {command}")
             return success
         except Exception as e:
             self.log_error(f"Command execution error: {str(e)}")
@@ -443,7 +444,7 @@ class GroqInterface:
 
     def log_status(self, status_message):
         print(f"Status: {status_message}")
-        self.update_status("Status", status_message)
+        self.update_status("Status Update", status_message)  # Changed to separate reason and action
         self.root.update()
 
     def execute_commands(self, response):
@@ -466,7 +467,7 @@ class GroqInterface:
 
     def log_error(self, error_message):
         print(f"Error: {error_message}")
-        self.update_status("Error", error_message)
+        self.update_status("Error occurred", error_message)  # Separated error reason from message
         self.root.update()
 
     def send_to_deepseek(self, prompt):
@@ -487,11 +488,8 @@ class GroqInterface:
             result = response.json()
             response_text = result['choices'][0]['message']['content']
             
-            # Use the ResponseParser to extract reason and action
-            reason, action = self.response_parser.parse_response(response_text)
-            
-            # Queue the update instead of updating directly
-            self.update_queue.add_update(reason, action)
+            # Use the new response handler
+            reason, action = self.response_handler.process_response(response_text)
             
             return response_text
             
