@@ -18,6 +18,9 @@ class CompletionDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
+        # Make dialog stay on top
+        self.dialog.attributes('-topmost', True)
+        
         # Add completion message
         message = ctk.CTkLabel(
             self.dialog,
@@ -34,3 +37,13 @@ class CompletionDialog:
             width=100
         )
         ok_button.pack(pady=10)
+        
+        # Add keyboard binding for OK
+        self.dialog.bind('<Return>', lambda e: self.dialog.destroy())
+        self.dialog.bind('<Escape>', lambda e: self.dialog.destroy())
+        
+        # Prevent closing without using buttons
+        self.dialog.protocol("WM_DELETE_WINDOW", self.dialog.destroy)
+        
+        # Focus the OK button
+        ok_button.focus_set()

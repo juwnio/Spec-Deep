@@ -1,136 +1,152 @@
-# AI-Powered Task Automation System 💻  (⊙_⊙;)
+# Spec-Drive: AI-Powered Task Automation System 🤖
 
 ## Overview
-This program is an AI-powered automation system that combines computer vision and language models to perform automated tasks on Windows. It uses screenshots for visual analysis and converts high-level user instructions into PyAutoGUI commands, Yikes.
+Spec-Drive is an advanced automation system that combines computer vision and language models to perform automated tasks on Windows. It uses Groq's powerful AI models to analyze screen content and execute precise actions.
 
-## Core Components
+## Features
 
-### 1. Visual Analysis System
-- Uses LLaVA vision model for screenshot analysis
-- Captures and processes screen content
-- Provides structured analysis of UI elements and content
-- Handles window management during captures
+### Core Capabilities
+- 🔄 Fully automated task execution
+- 👁️ Real-time screen analysis
+- ⌨️ Smart keyboard/mouse automation
+- 🛡️ Multiple safety mechanisms
+- 🎯 Precise action verification
+- 🔄 Automatic error recovery
 
-### 2. Command Generation
-- Uses Groq's language model for decision making
-- Converts visual analysis into concrete actions
-- Follows strict single-command protocol
-- Prioritizes keyboard shortcuts over mouse actions
+### Smart Features
+- 📱 Multi-model support (DeepSeek, LLaMA variants)
+- 🔑 Secure API key management
+- ⚡ Rate limit handling with model switching
+- 🔄 Automatic state recovery
+- 📊 Real-time status updates
+- ⚙️ Easy settings management
 
-### 3. Execution System
-- Executes PyAutoGUI commands safely
-- Verifies command execution success
-- Maintains command history
-- Implements safety measures and failsafes
+## Getting Started
 
-# Key Features
-
-- **Safety First**: 
-  - Corner trigger failsafe
-  - Command verification
-  - Error recovery
-  - Rate limiting
-
-- **Smart Navigation**: 
-  - Prefers keyboard shortcuts
-  - Uses Windows search for navigation
-  - Maintains context awareness
-  - Adapts to screen changes
-
-- **Robust Error Handling**:
-  - Command verification
-  - Retry mechanisms
-  - Error logging
-  - Graceful failure recovery
-
-## How It Works
-
-1. **Task Input**
-   - User enters task description
-   - Interface initializes safety monitoring
-   - Automation state is prepared
-
-2. **Automation Loop**
-   ```
-   1. Capture screenshot
-   2. Analyze visual content
-   3. Generate next action
-   4. Execute command
-   5. Verify result
-   6. Repeat until complete
-   ```
-
-3. **Command Processing**
-   - Single command execution
-   - Minimum delay between actions
-   - Success verification
-   - History tracking
-
-4. **Status Updates**
-   - Real-time feedback in UI
-   - Reason for each action
-   - Command execution status
-   - Error reporting
-
-# Setup Requirements
-
+### Prerequisites
 ```bash
 pip install -r requirements.txt
 ```
 
-## Required packages:
+Required packages:
 - customtkinter
 - pyautogui
-- Pillow
 - requests
 - pywin32
+- Pillow
 - python-dotenv
 - typing-extensions
 
-Configuration Files
+### First-Time Setup
+1. Launch the application
+2. Get your API key from [Groq Console](https://console.groq.com/keys)
+3. Enter your API key in the welcome screen
+4. Select your preferred model
 
-1. **context.txt**: Vision model instructions
-   - UI element detection
-   - Screen content analysis
-   - Visual hierarchy understanding
+### Basic Usage
+1. Enter your task description
+2. Click "Execute Task"
+3. Monitor progress in status panels
+4. Use corner triggers for emergency stop
 
-2. **context2.txt**: Automation instructions
-   - Command rules
-   - Safety measures
-   - Response format
-   - Operation priorities
+## Safety Features
 
-# Usage
+### Automatic Safeguards
+- Corner trigger failsafe
+- Command verification
+- Rate limiting protection
+- Maximum execution time limits
+- Minimum action intervals
 
-1. Start the program:
-   ```bash
-   python spec.py
-   ```
+### Error Handling
+- Automatic retry mechanism
+- Model switching on rate limits
+- API key validation
+- Command verification
+- State recovery
 
-2. Enter your task in the input field
-3. Click "Execute Task"
-4. Monitor progress in the status panels
-5. Move cursor to corner to stop execution
+## Interface Components
 
-# Safety Notes
+### Main Window
+- Task input field
+- Model selector
+- Status panels
+- Settings access
+- Progress indicators
 
-- Move cursor to screen corner for emergency stop
-- Program enforces minimum delays between actions
-- All commands are verified before continuing
-- Automatic error recovery with retry limits
+### Settings Panel
+- API key management
+- Model selection
+- Configuration options
 
-# Error Handling
+### Status Panels
+- Current action reason
+- Executed command
+- Progress indicators
+- Error messages
 
-- Maximum retry limit for failed commands
-- Automatic error logging
-- Visual verification of actions
-- Graceful shutdown on critical errors
+## Development Information
 
-# Development
+### File Structure
+```
+spec-drive/
+├── spec.py              # Main application
+├── api_manager.py       # API key handling
+├── model_selector.py    # Model selection
+├── response_handler.py  # Response processing
+├── settings_dialog.py   # Settings UI
+├── completion_dialog.py # Task completion
+└── rate_limit_dialog.py # Rate limit handling
+```
 
-The system is modular with these key classes:
-- `GroqInterface`: Main UI and control flow
-- `VisionProcessor`: Screenshot and analysis
-- `CommandProcessor`: Command handling
-- `AutomationState`: State management
-- `ModelResponseHandler`: AI response processing
+### Configuration
+- API keys stored in: `~/.spec-drive/config.json`
+- Context files:
+  - `context.txt`: Vision analysis instructions
+  - `context2.txt`: Automation rules
+
+### Models Available
+- DeepSeek (default)
+- LLaMA Spec
+- LLaMA Versatile
+
+## Troubleshooting
+
+### Common Issues
+1. **API Key Invalid**
+   - Check key in settings
+   - Regenerate from Groq console
+
+2. **Rate Limit Reached**
+   - Switch to different model
+   - Wait for cooldown
+   - Check usage limits
+
+3. **Task Execution Failed**
+   - Check task description
+   - Verify screen state
+   - Monitor error messages
+
+### Emergency Stops
+- Move cursor to screen corner
+- Close application
+- Use task manager if needed
+
+## Security Notes
+- API keys stored locally encrypted
+- No data sent to third parties
+- Screen captures temporary only
+- Secure credential handling
+
+## Updates and Maintenance
+- Check for updates regularly
+- Keep dependencies updated
+- Monitor API key validity
+- Review automation logs
+
+## Support
+For issues and suggestions:
+- Check error messages
+- Review documentation
+- Monitor system resources
+- Use safe mode if needed

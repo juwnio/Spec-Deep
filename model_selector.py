@@ -34,5 +34,13 @@ class ModelSelector:
         
     def get_selected_model(self):
         """Return the API model identifier for the selected model"""
-        selected_name = self.model_var.get()
-        return self.AVAILABLE_MODELS.get(selected_name)
+        try:
+            selected_name = self.model_var.get()
+            if selected_name not in self.AVAILABLE_MODELS:
+                print(f"Warning: Invalid model selection '{selected_name}', defaulting to DeepSeek")
+                self.model_var.set("DeepSeek")
+                selected_name = "DeepSeek"
+            return self.AVAILABLE_MODELS.get(selected_name)
+        except Exception as e:
+            print(f"Model selection error: {e}")
+            return self.AVAILABLE_MODELS["DeepSeek"]  # Default fallback

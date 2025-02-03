@@ -18,6 +18,11 @@ from response_handler import ModelResponseHandler
 from response_display_manager import ResponseDisplayManager
 from completion_dialog import CompletionDialog
 from model_selector import ModelSelector
+from rate_limit_dialog import RateLimitDialog
+from greeting_dialog import GreetingDialog
+from api_manager import APIManager
+from api_error_notification import APIErrorNotification
+from settings_dialog import SettingsDialog
 
 # Configure PyAutoGUI failsafe
 pyautogui.FAILSAFE = True  # Enables failsafe corner trigger
@@ -228,6 +233,28 @@ class GroqInterface:
         self.root = root
         self.root.title("Spec-Drive")
         
+        # Initialize API manager and check for first run
+        self.api_manager = APIManager()
+        if self.api_manager.is_first_run():
+            self.show_greeting()
+        else:
+            self.initialize_interface()
+    
+    def show_greeting(self):
+        """Show greeting dialog for first-time users"""
+        greeting = GreetingDialog(self.root)
+        self.root.wait_window(greeting.dialog)
+        self.initialize_interface()
+    
+    def initialize_interface(self):
+        """Initialize the main interface"""
+        # Load API key
+        self.api_key = self.api_manager.load_api_key()
+        if not self.api_key:
+            print("No API key found")
+            self.root.quit()
+            return
+            
         # Set CustomTkinter theme
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
@@ -237,7 +264,6 @@ class GroqInterface:
         
         # Initialize components
         self.focus_manager = WindowFocusManager()
-        self.api_key = "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"
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
         self.vision_processor = VisionProcessor(self.api_key, self.base_url, self.root, self.focus_manager)
         self.command_processor = CommandProcessor()
@@ -254,6 +280,9 @@ class GroqInterface:
         
         # Add periodic update checker
         self.schedule_updates()
+        
+        # Add API key reload capability
+        self.api_manager.on_api_key_change = self.update_api_key
 
     def start_safety_monitoring(self):
         """Start monitoring for safety trigger conditions"""
@@ -298,6 +327,17 @@ class GroqInterface:
         # Main container with padding
         main_frame = ctk.CTkFrame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
+        
+        # Add settings button at the top right
+        settings_btn = ctk.CTkButton(
+            main_frame,
+            text="⚙️",  # Gear emoji
+            width=40,
+            height=40,
+            command=self.show_settings,
+            font=("Segoe UI", 16)
+        )
+        settings_btn.pack(side="top", anchor="e", padx=5, pady=5)
         
         # Add model selector at the top
         self.model_selector = ModelSelector(main_frame)
@@ -375,6 +415,10 @@ class GroqInterface:
         self.reason_text.configure(state="disabled")
         self.action_text.configure(state="disabled")
 
+    def show_settings(self):
+        """Show settings dialog"""
+        SettingsDialog(self.root, self.api_manager, self.api_key)
+
     def process_workflow(self):
         if self.processing:
             return  # Prevent multiple simultaneous runs
@@ -397,14 +441,22 @@ class GroqInterface:
             self.root.after(0, self.loading_animation.stop)
 
     def update_status(self, reason, action):
-        """Update the status displays using display manager"""
-        self.display_manager.update_displays(reason=reason, action=action)
+        """Update the status displays thread-safely"""
+        self.root.after(0, lambda: self.display_manager.update_displays(reason=reason, action=action))
 
     def execute_automation_loop(self, user_prompt):
         self.automation_state.current_task = user_prompt
         
-        while not self.automation_state.task_completed:
-            try:
+        try:
+            # Add timeout protection
+            start_time = time.time()
+            max_execution_time = 300  # 5 minutes timeout
+            
+            while not self.automation_state.task_completed:
+                if time.time() - start_time > max_execution_time:
+                    self.emergency_stop("Maximum execution time exceeded")
+                    break
+
                 # Rate limiting check
                 if not self.automation_state.can_execute_next_action():
                     time.sleep(0.5)  # Short sleep if we need to wait
@@ -453,11 +505,19 @@ class GroqInterface:
                 time.sleep(self.automation_state.verification_delay)
                 self.root.update()
 
-            except Exception as e:
-                self.log_error(f"Loop iteration error: {str(e)}")
-                self.automation_state.error_count += 1
-                if self.automation_state.error_count >= self.automation_state.max_retries:
-                    break
+        except Exception as e:
+            self.log_error(f"Loop iteration error: {str(e)}")
+            self.emergency_stop(f"Critical error: {str(e)}")
+        finally:
+            self.cleanup()
+
+    def cleanup(self):
+        """Cleanup resources and state"""
+        self.processing = False
+        if self.safety_monitor:
+            self.root.after_cancel(self.safety_monitor)
+        self.loading_animation.stop()
+        self.automation_state.task_completed = True
 
     def execute_and_verify_command(self, command, previous_vision):
         """Execute command and verify its effect"""
@@ -501,8 +561,25 @@ class GroqInterface:
             self.automation_state.last_vision_response = vision_response
             return vision_response
         except Exception as e:
-            self.log_error(f"Vision analysis error: {str(e)}")
+            error_msg = str(e)
+            if "429 Client Error: Too Many Requests" in error_msg:
+                self.show_rate_limit_dialog()
+                return None
+            elif "401 Client Error: Unauthorized" in error_msg:
+                self.show_api_error()
+                return None
+            self.log_error(f"Vision analysis error: {error_msg}")
             return None
+    
+    def show_api_error(self):
+        """Show API error notification"""
+        self.emergency_stop("Invalid API key")
+        self.root.after(0, lambda: APIErrorNotification(self.root))
+
+    def show_rate_limit_dialog(self):
+        """Show rate limit exceeded dialog"""
+        self.emergency_stop("Rate limit exceeded")
+        self.root.after(0, lambda: RateLimitDialog(self.root))
 
     def get_deepseek_response(self, vision_response, user_prompt):
         try:
@@ -609,11 +686,20 @@ class GroqInterface:
             return response_text
             
         except Exception as e:
+            error_msg = str(e)
+            if "401 Client Error: Unauthorized" in error_msg:
+                self.show_api_error()
             self.display_manager.update_displays(
                 reason="Error occurred",
                 action=str(e)
             )
             return ""
+
+    def update_api_key(self, new_key):
+        """Update API key and reinitialize components that use it"""
+        self.api_key = new_key
+        if hasattr(self, 'vision_processor'):
+            self.vision_processor.api_key = new_key
 
 if __name__ == "__main__":
     root = ctk.CTk()

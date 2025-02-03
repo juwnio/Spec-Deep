@@ -6,17 +6,26 @@ class ModelResponseHandler:
         
     def process_response(self, response_text):
         """Process the full model response and update UI"""
-        parts = response_text.split('</think>')
-        content = parts[-1].strip() if len(parts) > 1 else response_text.strip()
-        
-        # Extract fields with clear separation
-        reason = self._extract_reason(content)
-        action = self._extract_action(content)
-        
-        # Update displays through the display manager
-        self.interface.display_manager.update_displays(reason=reason, action=action)
-        
-        return reason, action
+        if not response_text or not isinstance(response_text, str):
+            return "", ""
+            
+        try:
+            parts = response_text.split('</think>')
+            content = parts[-1].strip() if len(parts) > 1 else response_text.strip()
+            
+            reason = self._extract_reason(content)
+            action = self._extract_action(content)
+            
+            # Validate extracted content
+            if not reason and not action:
+                raise ValueError("Failed to extract valid reason or action")
+                
+            self.interface.display_manager.update_displays(reason=reason, action=action)
+            return reason, action
+            
+        except Exception as e:
+            print(f"Response processing error: {e}")
+            return "Error processing response", str(e)
     
     def _extract_reason(self, text):
         """Extract and clean reason field"""
