@@ -23,6 +23,8 @@ from greeting_dialog import GreetingDialog
 from api_manager import APIManager
 from api_error_notification import APIErrorNotification
 from settings_dialog import SettingsDialog
+from state_manager import StateManager, AutomationState, StateObserver
+from task_queue import TaskQueue
 
 # Configure PyAutoGUI failsafe
 pyautogui.FAILSAFE = True  # Enables failsafe corner trigger
@@ -51,29 +53,10 @@ class VisionProcessor:
         self.focus_manager = focus_manager
 
     def capture_and_encode_screenshot(self):
-        # Store current window state and focus
-        current_state = self.root_window.state()
-        self.focus_manager.store_current_focus()
-        
-        # Minimize window
-        self.root_window.iconify()
-        
-        # Small delay to ensure window is minimized
-        time.sleep(0.5)
-        
-        # Take screenshot
+        # Take screenshot directly without window manipulation
         screenshot = pyautogui.screenshot()
-        
-        # Restore window to previous state
-        if current_state == 'zoomed':
-            self.root_window.state('zoomed')
-        else:
-            self.root_window.deiconify()
             
-        # Restore previous window focus
-        time.sleep(0.1)  # Small delay to ensure window states are settled
-        self.focus_manager.restore_focus()
-            
+        # Save, encode, and cleanup
         screenshot.save("temp_screenshot.png")
         with open("temp_screenshot.png", "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
@@ -139,8 +122,11 @@ class AutomationState:
             return True
         return False
 
+# Update the CommandProcessor class
 class CommandProcessor:
-    def __init__(self):
+    def __init__(self, state_manager=None, task_queue=None):
+        self.state_manager = state_manager
+        self.task_queue = task_queue
         self.valid_commands = ['press', 'typewrite', 'click', 'doubleClick', 'rightClick', 
                              'moveTo', 'hotkey', 'scroll', 'dragTo']
     
@@ -228,18 +214,55 @@ class ResponseParser:
         
         return reason, action
 
-class GroqInterface:
+class GroqInterface(StateObserver):
     def __init__(self, root):
         self.root = root
         self.root.title("Spec-Drive")
         
-        # Initialize API manager and check for first run
+        # Initialize core components
+        self.state_manager = StateManager()
+        self.task_queue = TaskQueue()
         self.api_manager = APIManager()
+        
+        # Set up state observation
+        self.state_manager.add_observer(self)
+        
+        # Initialize command processor with state and queue
+        self.command_processor = CommandProcessor(self.state_manager, self.task_queue)
+        
+        # Add error handlers
+        self.task_queue.add_error_handler(self.handle_error)
+        self.task_queue.add_completion_callback(self.handle_completion)
+        
         if self.api_manager.is_first_run():
             self.show_greeting()
         else:
             self.initialize_interface()
-    
+            
+    def on_state_change(self, state, data):
+        """Handle state changes"""
+        self.update_queue.add_update(
+            reason=f"State changed to: {state.value}",
+            action=f"Last action: {data.last_action}"
+        )
+        
+        if state == AutomationState.ERROR:
+            self.handle_error_state()
+        elif state == AutomationState.COMPLETED:
+            self.show_completion_dialog()
+            
+    def process_workflow(self):
+        if self.state_manager.state != AutomationState.IDLE:
+            return
+            
+        self.state_manager.set_state(AutomationState.PROCESSING)
+        self.loading_animation.start()
+        
+        threading.Thread(
+            target=self._process_workflow_thread,
+            daemon=True
+        ).start()
+
     def show_greeting(self):
         """Show greeting dialog for first-time users"""
         greeting = GreetingDialog(self.root)
@@ -700,6 +723,19 @@ class GroqInterface:
         self.api_key = new_key
         if hasattr(self, 'vision_processor'):
             self.vision_processor.api_key = new_key
+
+    def handle_error(self, task, error):
+        """Handle task queue errors"""
+        self.log_error(f"Task error: {error}")
+        self.state_manager.set_state(AutomationState.ERROR)
+        
+    def handle_completion(self, task, result):
+        """Handle task completion"""
+        self.log_status(f"Task completed: {result}")
+        if not self.task_queue.task_queue.empty():
+            self.state_manager.set_state(AutomationState.PROCESSING)
+        else:
+            self.state_manager.set_state(AutomationState.COMPLETED)
 
 if __name__ == "__main__":
     root = ctk.CTk()
